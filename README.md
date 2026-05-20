@@ -128,3 +128,8 @@ Game memiliki beberapa state utama:
 - Saat malam, hantu lebih sering muncul.
 - Difficulty meningkat perlahan melalui `scroll_speed` dan `obstacle_frequency`.
 
+## Copyright
+
+Copyright (c) 2026 G1ts-3.
+
+Project ini dibuat untuk kebutuhan pembelajaran dan pengembangan game sederhana dengan Python + Pygame. Asset eksternal tetap mengikuti lisensi dari sumber masing-masing.
