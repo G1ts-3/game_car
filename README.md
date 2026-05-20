@@ -130,6 +130,6 @@ Game memiliki beberapa state utama:
 
 ## Copyright
 
-Copyright (c) 2026 G1ts-3.
+© 2026 [G1ts-3](https://github.com/G1ts-3). All rights reserved.
 
-Project ini dibuat untuk kebutuhan pembelajaran dan pengembangan game sederhana dengan Python + Pygame. Asset eksternal tetap mengikuti lisensi dari sumber masing-masing.
+Built with Python + Pygame. External assets remain the property of their respective creators and follow their original licenses.
