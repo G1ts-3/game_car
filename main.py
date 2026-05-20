@@ -2,16 +2,29 @@ import pygame
 import random
 import sys
 import math
+import asyncio
 
 # Inisialisasi Pygame & Mixer (Audio)
 pygame.init()
-pygame.mixer.init()
+try:
+    pygame.mixer.init()
+except pygame.error:
+    pass
 
 # Konstanta Dimensi Layar
 SCREEN_WIDTH = 480
 SCREEN_HEIGHT = 640
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("Car : Mini Game")
+try:
+    pygame.display.set_icon(pygame.image.load("favicon.png").convert_alpha())
+except FileNotFoundError:
+    icon_surface = pygame.Surface((32, 32), pygame.SRCALPHA)
+    pygame.draw.rect(icon_surface, BLACK, (8, 4, 16, 24), border_radius=4)
+    pygame.draw.rect(icon_surface, RED, (10, 6, 12, 20), border_radius=3)
+    pygame.draw.rect(icon_surface, YELLOW, (11, 6, 3, 3), border_radius=1)
+    pygame.draw.rect(icon_surface, YELLOW, (18, 6, 3, 3), border_radius=1)
+    pygame.display.set_icon(icon_surface)
 
 # Palet Warna
 WHITE = (255, 255, 255)
@@ -32,6 +45,7 @@ CYAN = (0, 255, 255)
 
 # Daftar warna acak untuk mobil rintangan
 CAR_COLORS = [RED, ORANGE, BLUE, PURPLE, SILVER, CYAN, WHITE, YELLOW]
+VEHICLE_COLORS = [RED, ORANGE, BLUE, PURPLE, SILVER, CYAN, WHITE, YELLOW, GREEN]
 
 # Setup Frame Rate
 clock = pygame.time.Clock()
@@ -101,10 +115,10 @@ def create_car(color):
     pygame.draw.rect(s, BLACK, (6, CAR_HEIGHT-28, CAR_WIDTH-12, 12))
     return s, CAR_WIDTH, CAR_HEIGHT
 
-def create_truck():
+def create_truck(color=WHITE):
     h = int(CAR_HEIGHT * 1.4)
     s = pygame.Surface((CAR_WIDTH, h), pygame.SRCALPHA)
-    pygame.draw.rect(s, WHITE, (2, 20, CAR_WIDTH-4, h-22), border_radius=2)
+    pygame.draw.rect(s, color, (2, 20, CAR_WIDTH-4, h-22), border_radius=2)
     pygame.draw.rect(s, BLACK, (2, 20, CAR_WIDTH-4, h-22), 2)
     pygame.draw.rect(s, BLUE, (4, 0, CAR_WIDTH-8, 22), border_radius=4)
     pygame.draw.rect(s, BLACK, (6, 8, CAR_WIDTH-12, 10))
@@ -122,21 +136,21 @@ def create_bus():
         pygame.draw.rect(s, BLACK, (w-10, i, 8, 12))
     return s, w, h
 
-def create_van(): 
+def create_van(color=SILVER): 
     h = int(CAR_HEIGHT * 1.2)
     w = int(CAR_WIDTH * 1.1)
     s = pygame.Surface((w, h), pygame.SRCALPHA)
-    pygame.draw.rect(s, SILVER, (0, 0, w, h), border_radius=3)
+    pygame.draw.rect(s, color, (0, 0, w, h), border_radius=3)
     pygame.draw.rect(s, BLACK, (0, 0, w, h), 2, border_radius=3)
     pygame.draw.rect(s, BLACK, (4, 15, w-8, 20))
     pygame.draw.rect(s, BLACK, (4, 40, w-8, 30))
     return s, w, h
 
-def create_compact(): 
+def create_compact(color=GREEN): 
     h = int(CAR_HEIGHT * 0.8)
     w = CAR_WIDTH
     s = pygame.Surface((w, h), pygame.SRCALPHA)
-    pygame.draw.rect(s, GREEN, (0, 0, w, h), border_radius=8)
+    pygame.draw.rect(s, color, (0, 0, w, h), border_radius=8)
     pygame.draw.rect(s, BLACK, (0, 0, w, h), 2, border_radius=8)
     pygame.draw.rect(s, BLACK, (6, 12, w-12, 10))
     pygame.draw.rect(s, BLACK, (6, h-20, w-12, 10))
@@ -217,10 +231,7 @@ def draw_scanlines(surface, alpha=28, gap=4):
         surface.blit(scanline, (0, y))
 
 cone_img, cone_w, cone_h = create_cone()
-truck_img, truck_w, truck_h = create_truck()
 bus_img, bus_w, bus_h = create_bus()
-van_img, van_w, van_h = create_van()
-compact_img, compact_w, compact_h = create_compact()
 ghost_img, ghost_w, ghost_h = create_ghost()
 
 scenery_images = {
@@ -235,7 +246,7 @@ jumpscare_img = create_jumpscare()
 class Obstacle:
     def __init__(self, speed_modifier, is_night):
         choices = ['car', 'cone', 'truck', 'bus', 'van', 'compact']
-        weights = [2.5, 1.5, 1.5, 1, 1.5, 2]
+        weights = [3.2, 0.8, 2.0, 1.0, 2.0, 3.0]
         
         if is_night:
             choices.append('ghost')
@@ -246,20 +257,25 @@ class Obstacle:
         if self.type == 'car': 
             self.image, self.w, self.h = create_car(random.choice(CAR_COLORS))
         elif self.type == 'cone': self.image, self.w, self.h = cone_img, cone_w, cone_h
-        elif self.type == 'truck': self.image, self.w, self.h = truck_img, truck_w, truck_h
+        elif self.type == 'truck': self.image, self.w, self.h = create_truck(random.choice(VEHICLE_COLORS))
         elif self.type == 'bus': self.image, self.w, self.h = bus_img, bus_w, bus_h
-        elif self.type == 'van': self.image, self.w, self.h = van_img, van_w, van_h
-        elif self.type == 'compact': self.image, self.w, self.h = compact_img, compact_w, compact_h
+        elif self.type == 'van': self.image, self.w, self.h = create_van(random.choice(VEHICLE_COLORS))
+        elif self.type == 'compact': self.image, self.w, self.h = create_compact(random.choice(VEHICLE_COLORS))
         elif self.type == 'ghost': self.image, self.w, self.h = ghost_img, ghost_w, ghost_h
 
         self.lane = random.randint(0, LANE_COUNT - 1)
-        self.exact_x = ROAD_LEFT + (self.lane * LANE_WIDTH) + (LANE_WIDTH - self.w) / 2.0
-        self.rect = pygame.Rect(int(self.exact_x), -self.h, self.w, self.h)
+        lane_center_x = ROAD_LEFT + (self.lane * LANE_WIDTH) + (LANE_WIDTH - self.w) / 2.0
+        lane_padding = 6
+        max_offset = max(0, int((LANE_WIDTH - self.w) / 2) - lane_padding)
+        self.lane_offset = random.randint(-max_offset, max_offset) if max_offset > 0 else 0
+        self.exact_x = lane_center_x + self.lane_offset
+        self.exact_y = -self.h
+        self.rect = pygame.Rect(int(self.exact_x), int(self.exact_y), self.w, self.h)
         
         if self.type == 'bus' or self.type == 'truck': 
-            speed_multiplier = 0.9 
+            speed_multiplier = 0.78 
         else: 
-            speed_multiplier = random.uniform(0.7, 0.85)
+            speed_multiplier = random.uniform(0.62, 0.76)
 
         self.speed = speed_modifier if self.type in ['cone', 'ghost'] else speed_modifier * speed_multiplier
         
@@ -272,7 +288,39 @@ class Obstacle:
         self.base_x = self.rect.x
         self.sway = 0
 
-    def update(self):
+    def get_lane_x(self, lane):
+        return ROAD_LEFT + (lane * LANE_WIDTH) + (LANE_WIDTH - self.w) / 2.0 + self.lane_offset
+
+    def can_enter_lane(self, lane, obstacles):
+        target_rect = pygame.Rect(int(self.get_lane_x(lane)), self.rect.y, self.w, self.h)
+        target_rect = target_rect.inflate(10, 90)
+        for obstacle in obstacles:
+            if obstacle is self:
+                continue
+            if target_rect.colliderect(obstacle.rect.inflate(10, 90)):
+                return False
+        return True
+
+    def get_safe_speed(self, obstacles):
+        safe_speed = self.speed
+        next_rect = self.rect.copy()
+        next_rect.y = int(self.exact_y + safe_speed)
+
+        for obstacle in obstacles:
+            if obstacle is self:
+                continue
+            same_path = (
+                next_rect.right > obstacle.rect.left - 6 and
+                next_rect.left < obstacle.rect.right + 6
+            )
+            obstacle_ahead = obstacle.rect.top >= self.rect.bottom
+            if same_path and obstacle_ahead:
+                gap = obstacle.rect.top - self.rect.bottom - 14
+                safe_speed = min(safe_speed, max(0, gap))
+
+        return safe_speed
+
+    def update(self, obstacles):
         # AI Ganti Jalur untuk Mobil Musuh
         if self.can_switch and not self.is_switching:
             self.switch_timer -= 1
@@ -282,9 +330,13 @@ class Obstacle:
                 if self.lane < LANE_COUNT - 1: options.append(1)
                 # 60% probabilitas benar-benar pindah, 40% tetap lurus
                 if options and random.random() < 0.6: 
-                    self.lane += random.choice(options)
-                    self.target_x = ROAD_LEFT + (self.lane * LANE_WIDTH) + (LANE_WIDTH - self.w) / 2.0
-                    self.is_switching = True
+                    target_lane = self.lane + random.choice(options)
+                    if self.can_enter_lane(target_lane, obstacles):
+                        self.lane = target_lane
+                        self.target_x = self.get_lane_x(self.lane)
+                        self.is_switching = True
+                    else:
+                        self.switch_timer = random.randint(80, 180)
                 else:
                     self.switch_timer = random.randint(100, 300)
 
@@ -298,7 +350,8 @@ class Obstacle:
                 self.is_switching = False
                 self.switch_timer = random.randint(120, 350) 
 
-        self.rect.y += self.speed
+        self.exact_y += self.get_safe_speed(obstacles)
+        self.rect.y = int(self.exact_y)
         
         if self.type == 'ghost':
             self.sway += 0.1
@@ -309,7 +362,14 @@ class Obstacle:
     def draw(self, surface):
         surface.blit(self.image, self.rect)
 
-def main():
+def has_obstacle_space(candidate, obstacles):
+    spawn_rect = candidate.rect.inflate(12, 110)
+    for obstacle in obstacles:
+        if spawn_rect.colliderect(obstacle.rect.inflate(12, 70)):
+            return False
+    return True
+
+async def main():
     game_state = "START" 
     
     player_lane = 2
@@ -317,7 +377,7 @@ def main():
     player_x = target_x
     player_y = SCREEN_HEIGHT - 60
 
-    scroll_speed = 5
+    scroll_speed = 4
     score = 0
     high_score = 0
 
@@ -325,7 +385,7 @@ def main():
     scenery = []
     obstacle_timer = 0
     scenery_timer = 0
-    obstacle_frequency = 90
+    obstacle_frequency = 68
     
     darkness_alpha = 0 
     current_light_alpha = 0 # Intensitas cahaya (animasi)
@@ -336,8 +396,8 @@ def main():
     dino_font = pygame.font.SysFont('Consolas', 22, bold=True)
     title_font = pygame.font.SysFont('Consolas', 36, bold=True)
     blink_font = pygame.font.SysFont('Consolas', 20, bold=True)
-    start_title_font = pygame.font.SysFont('Consolas', 30, bold=True)
-    start_prompt_font = pygame.font.SysFont('Consolas', 15, bold=True)
+    start_title_font = pygame.font.SysFont('Consolas', 26, bold=True)
+    start_prompt_font = pygame.font.SysFont('Consolas', 14, bold=True)
     gameover_font = pygame.font.SysFont('Consolas', 50, bold=True)
     score_font = pygame.font.SysFont('Consolas', 34, bold=True)
     prompt_font = pygame.font.SysFont('Consolas', 20, bold=True)
@@ -356,21 +416,21 @@ def main():
                         game_state = "PLAYING"
                         obstacles.clear()
                         scenery.clear()
-                        scroll_speed = 5
+                        scroll_speed = 4
                         score = 0
                         darkness_alpha = 0
                         current_light_alpha = 0
                         player_lane = 2
                         target_x = ROAD_LEFT + (player_lane * LANE_WIDTH) + (LANE_WIDTH / 2)
                         player_x = target_x
-                        obstacle_frequency = 90
+                        obstacle_frequency = 68
                 
                 elif game_state == "GAMEOVER":
                     if event.key == pygame.K_SPACE:
                         game_state = "START"
                         obstacles.clear()
                         scenery.clear()
-                        scroll_speed = 5
+                        scroll_speed = 4
                         score = 0
                         darkness_alpha = 0
                         current_light_alpha = 0
@@ -378,13 +438,13 @@ def main():
                         player_lane = 2
                         target_x = ROAD_LEFT + (player_lane * LANE_WIDTH) + (LANE_WIDTH / 2)
                         player_x = target_x
-                        obstacle_frequency = 90
+                        obstacle_frequency = 68
                     elif event.key == pygame.K_r:
                         play_sfx(sfx_cihuy) 
                         game_state = "PLAYING"
                         obstacles.clear()
                         scenery.clear()
-                        scroll_speed = 5
+                        scroll_speed = 4
                         high_score = max(high_score, int(score/10))
                         score = 0
                         darkness_alpha = 0
@@ -393,7 +453,7 @@ def main():
                         player_lane = 2
                         target_x = ROAD_LEFT + (player_lane * LANE_WIDTH) + (LANE_WIDTH / 2)
                         player_x = target_x
-                        obstacle_frequency = 90
+                        obstacle_frequency = 68
                 
                 elif game_state == "PLAYING":
                     if event.key in [pygame.K_LEFT, pygame.K_a] and player_lane > 0: 
@@ -475,7 +535,11 @@ def main():
             if game_state == "PLAYING":
                 obstacle_timer += 1
                 if obstacle_timer > obstacle_frequency:
-                    obstacles.append(Obstacle(scroll_speed, is_night))
+                    for _ in range(12):
+                        candidate = Obstacle(scroll_speed, is_night)
+                        if has_obstacle_space(candidate, obstacles):
+                            obstacles.append(candidate)
+                            break
                     obstacle_timer = 0
                     
                 score += 1 
@@ -483,12 +547,14 @@ def main():
                 if score > 0 and score % 1000 == 0: 
                     play_sfx(sfx_score)
 
-                if score % 400 == 0 and scroll_speed < 20:
-                    scroll_speed += 1
-                    obstacle_frequency = max(30, obstacle_frequency - 4)
+                if score % 500 == 0 and scroll_speed < 13:
+                    scroll_speed += 0.25
+
+                if score % 700 == 0:
+                    obstacle_frequency = max(40, obstacle_frequency - 2)
 
                 for obstacle in obstacles[:]:
-                    obstacle.update()
+                    obstacle.update(obstacles)
                     if obstacle.rect.top > SCREEN_HEIGHT:
                         obstacles.remove(obstacle)
                     
@@ -698,11 +764,12 @@ def main():
                 pygame.draw.rect(screen, RED, rect.inflate(-8, -8), 1)
 
             if (current_time // 500) % 2 == 0:
-                draw_retro_text(screen, prompt_font, "R ULANGI", left_prompt.center, WHITE, outline=BLACK, shadow=(70, 0, 30), outline_px=1)
-                draw_retro_text(screen, prompt_font, "SPACE MENU", right_prompt.center, WHITE, outline=BLACK, shadow=(70, 0, 30), outline_px=1)
+                draw_retro_text(screen, prompt_font, "[ R ] ULANGI", left_prompt.center, WHITE, outline=BLACK, shadow=(70, 0, 30), outline_px=1)
+                draw_retro_text(screen, prompt_font, "[SPACE] MENU", right_prompt.center, WHITE, outline=BLACK, shadow=(70, 0, 30), outline_px=1)
 
         pygame.display.flip()
         clock.tick(FPS)
+        await asyncio.sleep(0)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
