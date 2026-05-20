@@ -1,0 +1,151 @@
+import pygame
+import random
+import sys
+import os
+
+# Inisialisasi Pygame
+pygame.init()
+
+# Setup Layar (Rasio Mobile Portrait)
+WIDTH = 400
+HEIGHT = 600
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Endless Car Dodge")
+clock = pygame.time.Clock()
+font = pygame.font.SysFont("Arial", 24)
+
+# Fungsi untuk memuat dan menyesuaikan ukuran gambar mobil
+def load_car_image(filename, fallback_color, size=(50, 100)):
+    if os.path.exists(filename):
+        img = pygame.image.load(filename).convert_alpha()
+        return pygame.transform.scale(img, size) # Skala disesuaikan agar tidak kebesaran
+    else:
+        # Fallback jika file gambar belum ada di folder (berupa kotak warna)
+        img = pygame.Surface(size)
+        img.fill(fallback_color)
+        return img
+
+# Class untuk Mobil Pemain
+class Player(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__()
+        # Load mobil_player.png, warna fallback: Biru
+        self.image = load_car_image("mobil_player.png", (0, 0, 255)) 
+        self.rect = self.image.get_rect()
+        self.rect.center = (WIDTH // 2, HEIGHT - 80) # Posisi awal di bawah tengah
+        self.speed = 6
+
+    def update(self):
+        keys = pygame.key.get_pressed()
+        # Bergerak ke kiri dan kanan, dengan batasan batas layar
+        if keys[pygame.K_LEFT] and self.rect.left > 0:
+            self.rect.x -= self.speed
+        if keys[pygame.K_RIGHT] and self.rect.right < WIDTH:
+            self.rect.x += self.speed
+
+# Class untuk Mobil Musuh (Obstacle)
+class Enemy(pygame.sprite.Sprite):
+    def __init__(self, speed):
+        super().__init__()
+        # Memilih mobil random dari mobil_1.png sampai mobil_10.png
+        car_num = random.randint(1, 10)
+        filename = f"mobil_{car_num}.png"
+        
+        # Load mobil musuh, warna fallback: Merah
+        self.image = load_car_image(filename, (255, 0, 0)) 
+        self.rect = self.image.get_rect()
+        
+        # Muncul dari luar layar atas dengan koordinat x acak
+        self.rect.x = random.randint(0, WIDTH - self.rect.width)
+        self.rect.y = random.randint(-150, -50)
+        self.speed = speed
+
+    def update(self):
+        self.rect.y += self.speed
+        if self.rect.top > HEIGHT:
+            self.kill() # Menghapus sprite dari memori saat lewat layar bawah
+
+# Setup Grup Sprite
+all_sprites = pygame.sprite.Group()
+enemies = pygame.sprite.Group()
+
+player = Player()
+all_sprites.add(player)
+
+# Event Kustom untuk Spawn Musuh
+SPAWN_ENEMY = pygame.USEREVENT + 1
+pygame.time.set_timer(SPAWN_ENEMY, 1200) # Spawn musuh setiap 1.2 detik
+
+# Variabel Game
+score = 0
+start_ticks = pygame.time.get_ticks()
+enemy_speed = 5
+game_over = False
+
+# Game Loop Utama
+while True:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            sys.exit()
+            
+        # Spawn musuh baru selama belum game over
+        if event.type == SPAWN_ENEMY and not game_over:
+            new_enemy = Enemy(enemy_speed)
+            all_sprites.add(new_enemy)
+            enemies.add(new_enemy)
+            
+        # Restart game setelah game over
+        if event.type == pygame.KEYDOWN and game_over:
+            if event.key == pygame.K_r:
+                game_over = False
+                all_sprites.empty()
+                enemies.empty()
+                
+                player = Player()
+                all_sprites.add(player)
+                
+                start_ticks = pygame.time.get_ticks()
+                enemy_speed = 5
+                score = 0
+
+    if not game_over:
+        all_sprites.update()
+
+        # Logika Skor: Semakin lama bertahan, skor bertambah
+        seconds_survived = (pygame.time.get_ticks() - start_ticks) / 1000
+        score = int(seconds_survived * 10)
+        
+        # Logika Kesulitan: Kecepatan musuh bertambah seiring waktu
+        enemy_speed = 5 + (seconds_survived // 15) 
+
+        # Logika Tabrakan (Hitbox Collision)
+        if pygame.sprite.spritecollideany(player, enemies):
+            game_over = True
+
+    # Render Latar Belakang (Warna Aspal Gelap)
+    screen.fill((40, 40, 40))
+
+    # Gambar marka jalan (Estetika)
+    pygame.draw.line(screen, (255, 255, 255), (WIDTH//3, 0), (WIDTH//3, HEIGHT), 2)
+    pygame.draw.line(screen, (255, 255, 255), (WIDTH//3 * 2, 0), (WIDTH//3 * 2, HEIGHT), 2)
+
+    # Gambar semua mobil (Pemain & Musuh)
+    all_sprites.draw(screen)
+
+    # Render UI (Skor & Status Game Over)
+    if not game_over:
+        score_text = font.render(f"Skor: {score}", True, (255, 255, 255))
+        screen.blit(score_text, (10, 10))
+    else:
+        go_text = font.render("TABRAKAN! GAME OVER", True, (255, 50, 50))
+        final_score = font.render(f"Skor Bertahan: {score}", True, (255, 255, 255))
+        restart_text = font.render("Tekan 'R' untuk Restart", True, (200, 200, 200))
+        
+        screen.blit(go_text, (WIDTH//2 - go_text.get_width()//2, HEIGHT//2 - 50))
+        screen.blit(final_score, (WIDTH//2 - final_score.get_width()//2, HEIGHT//2))
+        screen.blit(restart_text, (WIDTH//2 - restart_text.get_width()//2, HEIGHT//2 + 50))
+
+    # Update frame layar
+    pygame.display.flip()
+    clock.tick(60) # Berjalan di 60 FPS
