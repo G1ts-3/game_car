@@ -1,0 +1,10 @@
+# Local Netlify folder
+.netlify
+
+# Build output
+build/
+.vercel_python/
+
+# Python cache
+__pycache__/
+*.pyc
