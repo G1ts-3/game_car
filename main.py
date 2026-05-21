@@ -51,6 +51,10 @@ VEHICLE_COLORS = [RED, ORANGE, BLUE, PURPLE, SILVER, CYAN, WHITE, YELLOW, GREEN]
 clock = pygame.time.Clock()
 FPS = 60
 
+FIRST_TIME_PHASE_SCORE = 350
+NEXT_TIME_PHASE_SCORE = 300
+TIME_TRANSITION_SCORE = 24
+
 # --- FUNGSI LOAD SOUND EFFECT ---
 def load_sfx(filename):
     try:
@@ -65,10 +69,32 @@ sfx_score = load_sfx("score.wav")
 sfx_jumpscare = load_sfx("jumpscare.wav")
 sfx_cihuy = load_sfx("cihuy.wav") 
 sfx_gameover = load_sfx("gameover.wav")
+sfx_playing = load_sfx("playing.wav")
+sfx_playing_fast = load_sfx("playing_fast.wav")
+sfx_playing_intense = load_sfx("playing_intense.wav")
+sfx_menu = load_sfx("menu.wav")
 
 def play_sfx(sfx):
     if sfx is not None:
         sfx.play()
+
+def stop_sfx(sfx):
+    if sfx is not None:
+        sfx.stop()
+
+def get_playing_loop(hud_score):
+    if hud_score >= 900 and sfx_playing_intense is not None:
+        return sfx_playing_intense
+    if hud_score >= 450 and sfx_playing_fast is not None:
+        return sfx_playing_fast
+    return sfx_playing
+
+def get_intensity_targets(hud_score):
+    if hud_score >= 900:
+        return 6.2, 46, 14.0
+    if hud_score >= 450:
+        return 5.0, 55, 12.0
+    return 4.0, 64, 10.0
 
 # --- KONFIGURASI JALUR ---
 LANE_COUNT = 5
@@ -156,6 +182,22 @@ def create_compact(color=GREEN):
     pygame.draw.rect(s, BLACK, (6, h-20, w-12, 10))
     return s, w, h
 
+def create_wide_car(color):
+    w = int(LANE_WIDTH * 1.75)
+    h = int(CAR_HEIGHT * 1.45)
+    s = pygame.Surface((w, h), pygame.SRCALPHA)
+    pygame.draw.rect(s, BLACK, (0, 0, w, h), border_radius=7)
+    pygame.draw.rect(s, color, (3, 24, w-6, h-27), border_radius=3)
+    pygame.draw.rect(s, BLACK, (3, 24, w-6, h-27), 2, border_radius=3)
+    pygame.draw.rect(s, BLUE, (12, 2, w-24, 28), border_radius=4)
+    pygame.draw.rect(s, BLACK, (18, 10, w-36, 12), border_radius=2)
+    pygame.draw.rect(s, BLACK, (10, 44, w-20, 6))
+    pygame.draw.rect(s, BLACK, (10, h-34, w-20, 6))
+    pygame.draw.rect(s, BLACK, (10, h-20, w-20, 6))
+    pygame.draw.rect(s, YELLOW, (9, 3, 11, 7), border_radius=2)
+    pygame.draw.rect(s, YELLOW, (w-20, 3, 11, 7), border_radius=2)
+    return s, w, h
+
 def create_ghost():
     s = pygame.Surface((CAR_WIDTH, CAR_HEIGHT), pygame.SRCALPHA)
     pygame.draw.circle(s, (255, 255, 255, 150), (CAR_WIDTH//2, CAR_WIDTH//2), CAR_WIDTH//2)
@@ -230,6 +272,15 @@ def draw_scanlines(surface, alpha=28, gap=4):
     for y in range(0, SCREEN_HEIGHT, gap):
         surface.blit(scanline, (0, y))
 
+def get_time_phase(hud_score):
+    if hud_score < FIRST_TIME_PHASE_SCORE:
+        return 0, hud_score
+
+    elapsed = hud_score - FIRST_TIME_PHASE_SCORE
+    phase_index = 1 + (elapsed // NEXT_TIME_PHASE_SCORE)
+    phase_progress = elapsed % NEXT_TIME_PHASE_SCORE
+    return phase_index, phase_progress
+
 cone_img, cone_w, cone_h = create_cone()
 bus_img, bus_w, bus_h = create_bus()
 ghost_img, ghost_w, ghost_h = create_ghost()
@@ -244,7 +295,7 @@ scenery_images = {
 jumpscare_img = create_jumpscare()
 
 class Obstacle:
-    def __init__(self, speed_modifier, is_night):
+    def __init__(self, speed_modifier, is_night, advanced_difficulty):
         choices = ['car', 'cone', 'truck', 'bus', 'van', 'compact']
         weights = [3.2, 0.8, 2.0, 1.0, 2.0, 3.0]
         
@@ -252,7 +303,13 @@ class Obstacle:
             choices.append('ghost')
             weights.append(3.5)
 
+        if advanced_difficulty:
+            choices.append('wide_car')
+            weights.append(1.4)
+
         self.type = random.choices(choices, weights=weights)[0]
+        self.advanced_difficulty = advanced_difficulty
+        self.lane_span = 2 if self.type == 'wide_car' else 1
         
         if self.type == 'car': 
             self.image, self.w, self.h = create_car(random.choice(CAR_COLORS))
@@ -261,12 +318,14 @@ class Obstacle:
         elif self.type == 'bus': self.image, self.w, self.h = bus_img, bus_w, bus_h
         elif self.type == 'van': self.image, self.w, self.h = create_van(random.choice(VEHICLE_COLORS))
         elif self.type == 'compact': self.image, self.w, self.h = create_compact(random.choice(VEHICLE_COLORS))
+        elif self.type == 'wide_car': self.image, self.w, self.h = create_wide_car(random.choice(VEHICLE_COLORS))
         elif self.type == 'ghost': self.image, self.w, self.h = ghost_img, ghost_w, ghost_h
 
-        self.lane = random.randint(0, LANE_COUNT - 1)
-        lane_center_x = ROAD_LEFT + (self.lane * LANE_WIDTH) + (LANE_WIDTH - self.w) / 2.0
+        self.lane = random.randint(0, LANE_COUNT - self.lane_span)
+        lane_span_width = LANE_WIDTH * self.lane_span
+        lane_center_x = ROAD_LEFT + (self.lane * LANE_WIDTH) + (lane_span_width - self.w) / 2.0
         lane_padding = 6
-        max_offset = max(0, int((LANE_WIDTH - self.w) / 2) - lane_padding)
+        max_offset = max(0, int((lane_span_width - self.w) / 2) - lane_padding)
         self.lane_offset = random.randint(-max_offset, max_offset) if max_offset > 0 else 0
         self.exact_x = lane_center_x + self.lane_offset
         self.exact_y = -self.h
@@ -280,16 +339,18 @@ class Obstacle:
         self.speed = speed_modifier if self.type in ['cone', 'ghost'] else speed_modifier * speed_multiplier
         
         # Variabel AI Ganti Jalur
-        self.can_switch = self.type in ['car', 'truck', 'bus', 'van', 'compact']
-        self.switch_timer = random.randint(60, 250) 
+        self.can_switch = self.type in ['car', 'truck', 'bus', 'van', 'compact', 'wide_car']
+        self.switch_timer = random.randint(35, 150) if advanced_difficulty else random.randint(50, 180)
         self.is_switching = False
         self.target_x = self.exact_x
+        self.previous_lane = self.lane
         
         self.base_x = self.rect.x
         self.sway = 0
 
     def get_lane_x(self, lane):
-        return ROAD_LEFT + (lane * LANE_WIDTH) + (LANE_WIDTH - self.w) / 2.0 + self.lane_offset
+        lane_span_width = LANE_WIDTH * self.lane_span
+        return ROAD_LEFT + (lane * LANE_WIDTH) + (lane_span_width - self.w) / 2.0 + self.lane_offset
 
     def can_enter_lane(self, lane, obstacles):
         target_rect = pygame.Rect(int(self.get_lane_x(lane)), self.rect.y, self.w, self.h)
@@ -325,20 +386,28 @@ class Obstacle:
         if self.can_switch and not self.is_switching:
             self.switch_timer -= 1
             if self.switch_timer <= 0:
+                max_jump = 1 if self.lane_span > 1 else (3 if self.advanced_difficulty else 1)
+                max_lane = LANE_COUNT - self.lane_span
                 options = []
-                if self.lane > 0: options.append(-1)
-                if self.lane < LANE_COUNT - 1: options.append(1)
-                # 60% probabilitas benar-benar pindah, 40% tetap lurus
-                if options and random.random() < 0.6: 
-                    target_lane = self.lane + random.choice(options)
-                    if self.can_enter_lane(target_lane, obstacles):
-                        self.lane = target_lane
-                        self.target_x = self.get_lane_x(self.lane)
-                        self.is_switching = True
-                    else:
-                        self.switch_timer = random.randint(80, 180)
+                for jump in range(1, max_jump + 1):
+                    if self.lane - jump >= 0:
+                        options.append(self.lane - jump)
+                    if self.lane + jump <= max_lane:
+                        options.append(self.lane + jump)
+
+                safe_options = [lane for lane in options if self.can_enter_lane(lane, obstacles)]
+                if self.previous_lane in safe_options and random.random() < 0.35:
+                    safe_options.extend([self.previous_lane, self.previous_lane])
+
+                switch_chance = 0.82 if self.advanced_difficulty else 0.68
+                if safe_options and random.random() < switch_chance: 
+                    target_lane = random.choice(safe_options)
+                    self.previous_lane = self.lane
+                    self.lane = target_lane
+                    self.target_x = self.get_lane_x(self.lane)
+                    self.is_switching = True
                 else:
-                    self.switch_timer = random.randint(100, 300)
+                    self.switch_timer = random.randint(45, 130) if self.advanced_difficulty else random.randint(65, 170)
 
         # Muluskan Perpindahan X
         if self.is_switching:
@@ -348,7 +417,7 @@ class Obstacle:
             else:
                 self.exact_x = self.target_x
                 self.is_switching = False
-                self.switch_timer = random.randint(120, 350) 
+                self.switch_timer = random.randint(35, 130) if self.advanced_difficulty else random.randint(55, 170)
 
         self.exact_y += self.get_safe_speed(obstacles)
         self.rect.y = int(self.exact_y)
@@ -385,12 +454,14 @@ async def main():
     scenery = []
     obstacle_timer = 0
     scenery_timer = 0
-    obstacle_frequency = 68
+    obstacle_frequency = 64
     
     darkness_alpha = 0 
     current_light_alpha = 0 # Intensitas cahaya (animasi)
     jumpscare_timer = 0
     jumpscare_overlay_timer = 0
+    current_audio_state = None
+    current_playing_loop = None
     bg_scroll = 0
     
     dino_font = pygame.font.SysFont('Consolas', 22, bold=True)
@@ -404,6 +475,32 @@ async def main():
 
     while True:
         current_time = pygame.time.get_ticks()
+
+        audio_state = game_state if game_state in ["START", "PLAYING", "GAMEOVER"] else None
+        if audio_state != current_audio_state:
+            stop_sfx(sfx_menu)
+            stop_sfx(sfx_playing)
+            stop_sfx(sfx_playing_fast)
+            stop_sfx(sfx_playing_intense)
+            if audio_state == "START" and sfx_menu is not None:
+                sfx_menu.play(-1)
+                current_playing_loop = None
+            elif audio_state == "PLAYING":
+                current_playing_loop = get_playing_loop(int(score / 10))
+                if current_playing_loop is not None:
+                    current_playing_loop.play(-1)
+            elif audio_state == "GAMEOVER":
+                play_sfx(sfx_gameover)
+                current_playing_loop = None
+            current_audio_state = audio_state
+
+        if game_state == "PLAYING":
+            next_playing_loop = get_playing_loop(int(score / 10))
+            if next_playing_loop is not current_playing_loop:
+                stop_sfx(current_playing_loop)
+                current_playing_loop = next_playing_loop
+                if current_playing_loop is not None:
+                    current_playing_loop.play(-1)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -423,7 +520,7 @@ async def main():
                         player_lane = 2
                         target_x = ROAD_LEFT + (player_lane * LANE_WIDTH) + (LANE_WIDTH / 2)
                         player_x = target_x
-                        obstacle_frequency = 68
+                        obstacle_frequency = 64
                 
                 elif game_state == "GAMEOVER":
                     if event.key == pygame.K_SPACE:
@@ -438,7 +535,7 @@ async def main():
                         player_lane = 2
                         target_x = ROAD_LEFT + (player_lane * LANE_WIDTH) + (LANE_WIDTH / 2)
                         player_x = target_x
-                        obstacle_frequency = 68
+                        obstacle_frequency = 64
                     elif event.key == pygame.K_r:
                         play_sfx(sfx_cihuy) 
                         game_state = "PLAYING"
@@ -453,7 +550,7 @@ async def main():
                         player_lane = 2
                         target_x = ROAD_LEFT + (player_lane * LANE_WIDTH) + (LANE_WIDTH / 2)
                         player_x = target_x
-                        obstacle_frequency = 68
+                        obstacle_frequency = 64
                 
                 elif game_state == "PLAYING":
                     if event.key in [pygame.K_LEFT, pygame.K_a] and player_lane > 0: 
@@ -478,24 +575,28 @@ async def main():
             
             if game_state == "PLAYING":
                 hud_score = int(score / 10)
-                cycle_val = hud_score % 750 
+                time_phase, phase_progress = get_time_phase(hud_score)
+                is_night_phase = time_phase % 2 == 1
+                advanced_difficulty = time_phase >= 2
                 
                 MAX_DARKNESS = 130 # Sedikit diturunkan agar lebih terang dari versi sebelumnya
                 
-                if cycle_val < 480: 
-                    target_alpha = 0 
-                elif cycle_val < 500: 
-                    target_alpha = int(((cycle_val - 480) / 20.0) * MAX_DARKNESS) 
-                elif cycle_val < 730: 
-                    target_alpha = MAX_DARKNESS 
-                else: 
-                    target_alpha = int(((750 - cycle_val) / 20.0) * MAX_DARKNESS)
+                if time_phase == 0:
+                    target_alpha = 0
+                elif phase_progress < TIME_TRANSITION_SCORE:
+                    transition_ratio = phase_progress / float(TIME_TRANSITION_SCORE)
+                    if is_night_phase:
+                        target_alpha = int(transition_ratio * MAX_DARKNESS)
+                    else:
+                        target_alpha = int((1.0 - transition_ratio) * MAX_DARKNESS)
+                else:
+                    target_alpha = MAX_DARKNESS if is_night_phase else 0
                     
                 darkness_alpha = target_alpha
                 
                 # --- LOGIKA ANIMASI LAMPU NYALA (FLICKER) ---
-                is_flickering = (485 <= cycle_val <= 495) or (735 <= cycle_val <= 745)
-                lights_on = cycle_val > 495 and cycle_val < 735
+                is_flickering = time_phase > 0 and phase_progress < TIME_TRANSITION_SCORE
+                lights_on = is_night_phase and phase_progress >= TIME_TRANSITION_SCORE
 
                 if is_flickering:
                     # Kedap-kedip
@@ -507,6 +608,8 @@ async def main():
                     current_light_alpha = 150
                 else:
                     current_light_alpha = 0
+            else:
+                advanced_difficulty = False
             
             is_night = darkness_alpha > 50
 
@@ -536,7 +639,7 @@ async def main():
                 obstacle_timer += 1
                 if obstacle_timer > obstacle_frequency:
                     for _ in range(12):
-                        candidate = Obstacle(scroll_speed, is_night)
+                        candidate = Obstacle(scroll_speed, is_night, advanced_difficulty)
                         if has_obstacle_space(candidate, obstacles):
                             obstacles.append(candidate)
                             break
@@ -547,11 +650,16 @@ async def main():
                 if score > 0 and score % 1000 == 0: 
                     play_sfx(sfx_score)
 
-                if score % 500 == 0 and scroll_speed < 13:
-                    scroll_speed += 0.25
+                target_speed, target_frequency, max_speed = get_intensity_targets(int(score / 10))
+                if scroll_speed < target_speed:
+                    scroll_speed = min(target_speed, scroll_speed + 0.08)
+                elif score % 450 == 0 and scroll_speed < max_speed:
+                    scroll_speed += 0.18
 
-                if score % 700 == 0:
-                    obstacle_frequency = max(40, obstacle_frequency - 2)
+                if obstacle_frequency > target_frequency:
+                    obstacle_frequency = max(target_frequency, obstacle_frequency - 1)
+                elif score % 550 == 0:
+                    obstacle_frequency = max(34, obstacle_frequency - 2)
 
                 for obstacle in obstacles[:]:
                     obstacle.update(obstacles)
@@ -568,7 +676,6 @@ async def main():
                             high_score = max(high_score, int(score/10))
                             game_state = "GAMEOVER"
                             play_sfx(sfx_crash)
-                            play_sfx(sfx_gameover)
 
         # --- RENDER KE LAYAR ---
         # 1. Base Layer (Rumput)
@@ -764,7 +871,7 @@ async def main():
                 pygame.draw.rect(screen, RED, rect.inflate(-8, -8), 1)
 
             if (current_time // 500) % 2 == 0:
-                draw_retro_text(screen, prompt_font, "[ R ] ULANGI", left_prompt.center, WHITE, outline=BLACK, shadow=(70, 0, 30), outline_px=1)
+                draw_retro_text(screen, prompt_font, "[R] ULANGI", left_prompt.center, WHITE, outline=BLACK, shadow=(70, 0, 30), outline_px=1)
                 draw_retro_text(screen, prompt_font, "[SPACE] MENU", right_prompt.center, WHITE, outline=BLACK, shadow=(70, 0, 30), outline_px=1)
 
         pygame.display.flip()
